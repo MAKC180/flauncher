@@ -18,7 +18,7 @@ import pack_sync
 import updater
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.2"
+LAUNCHER_VERSION = "0.3"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -52,12 +52,12 @@ class MemoryStatus(ctypes.Structure):
 
 
 def get_max_ram():
-    # Сколько ГБ можно отдать игре: вся память минус 2 ГБ для Windows
+    # Сколько всего памяти в компьютере (в ГБ) — это максимум ползунка
     status = MemoryStatus()
     status.dwLength = ctypes.sizeof(MemoryStatus)
     ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
     total_gb = round(status.ullTotalPhys / 1024 ** 3)
-    return max(MIN_RAM, total_gb - 2)
+    return max(MIN_RAM, total_gb)
 
 
 def load_settings():
@@ -225,7 +225,7 @@ def check_messages():
 
 window = tk.Tk()
 window.title("Flauncher " + LAUNCHER_VERSION)
-window.geometry("420x300")
+window.geometry("420x320")
 window.resizable(False, False)
 window.configure(bg=BG)
 
@@ -251,7 +251,15 @@ ram_value_label = tk.Label(row, width=6, font=("Segoe UI", 11, "bold"), bg=BG, f
 
 def on_ram_change(value):
     # Ползунок вызывает эту функцию при каждом движении — обновляем подпись
-    ram_value_label.config(text=str(int(float(value))) + " ГБ")
+    ram = int(float(value))
+    ram_value_label.config(text=str(ram) + " ГБ")
+    # Если Windows остаётся меньше 2 ГБ — предупреждаем оранжевым цветом
+    if max_ram - ram < 2:
+        ram_value_label.config(fg="#f0a030")
+        ram_hint_label.config(text="Windows почти не останется памяти — компьютер может тормозить")
+    else:
+        ram_value_label.config(fg=FG)
+        ram_hint_label.config(text="")
 
 
 ram_scale = tk.Scale(row, from_=MIN_RAM, to=max_ram, resolution=1, orient="horizontal",
@@ -262,6 +270,9 @@ ram_scale = tk.Scale(row, from_=MIN_RAM, to=max_ram, resolution=1, orient="horiz
 ram_scale.set(min(settings["ram"], max_ram))
 ram_scale.pack(side="left")
 ram_value_label.pack(side="left", padx=(8, 0))
+# Подсказка под ползунком (пустая, пока память не выставлена почти на максимум)
+ram_hint_label = tk.Label(window, text="", font=("Segoe UI", 8), bg=BG, fg="#f0a030")
+ram_hint_label.pack()
 on_ram_change(ram_scale.get())
 
 # Кнопка «Играть»
