@@ -19,7 +19,7 @@ import updater
 import accounts      # вход и регистрация (репозиторий flauncher-players)
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.6"
+LAUNCHER_VERSION = "0.7"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится

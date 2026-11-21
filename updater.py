@@ -5,6 +5,7 @@ import sys
 import time
 import subprocess
 import requests
+import accounts   # запрос к GitHub с ключом (больше лимит запросов)
 
 REPO = "MAKC180/flauncher"   # репозиторий лаунчера, в Releases лежат готовые .exe
 EXE_NAME = "Flauncher.exe"   # как называется файл лаунчера в релизе
@@ -45,7 +46,7 @@ def check_for_update(current_version):
     # Спрашиваем GitHub о последнем релизе.
     # Возвращаем (новая_версия, ссылка_на_exe) или None, если обновлять не нужно.
     url = "https://api.github.com/repos/" + REPO + "/releases/latest"
-    response = requests.get(url, timeout=15)
+    response = accounts.api_get(url, {}, 15)
     if response.status_code == 404:
         return None   # релизов ещё нет
     response.raise_for_status()

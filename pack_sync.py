@@ -4,6 +4,7 @@ import os
 import hashlib
 import urllib.parse
 import requests   # библиотека для скачивания из интернета
+import accounts   # отсюда берём запрос к GitHub с ключом
 
 REPO = "MAKC180/flauncher-pack"   # репозиторий сборки на GitHub
 
@@ -24,14 +25,19 @@ def get_latest_commit():
     # Спрашиваем у GitHub номер самого свежего «снимка» (commit) ветки main.
     # Этот ответ GitHub не кэширует надолго, поэтому номер всегда свежий.
     url = "https://api.github.com/repos/" + REPO + "/commits/main"
-    response = requests.get(url, headers={"Accept": "application/vnd.github.sha"}, timeout=30)
+    response = accounts.api_get(url, {"Accept": "application/vnd.github.sha"}, 30)
     response.raise_for_status()
     return response.text.strip()
 
 
 def get_modpack():
-    # 1) Узнаём номер свежего снимка
-    commit = get_latest_commit()
+    # 1) Узнаём номер свежего снимка.
+    #    Если GitHub не ответил (например, лимит запросов) — берём ветку main напрямую.
+    #    Она может отставать на несколько минут после обновления сборки, но игра запустится.
+    try:
+        commit = get_latest_commit()
+    except requests.RequestException:
+        commit = "main"
     # 2) Все файлы берём именно из этого снимка — они никогда не меняются,
     #    поэтому старые копии из кэша GitHub нам не помешают
     base_url = "https://raw.githubusercontent.com/" + REPO + "/" + commit + "/"

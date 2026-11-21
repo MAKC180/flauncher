@@ -30,6 +30,21 @@ def github_headers():
             "Accept": "application/vnd.github+json"}
 
 
+def api_get(url, headers, timeout):
+    # Запрос к GitHub API для открытых репозиториев (сборка, релизы).
+    # С ключом GitHub разрешает 5000 запросов в час, без ключа — только 60 с одного адреса.
+    with_key = dict(headers)
+    try:
+        with_key["Authorization"] = "Bearer " + read_token()
+    except OSError:
+        pass   # ключа нет — спрашиваем без него
+    response = requests.get(url, headers=with_key, timeout=timeout)
+    if response.status_code == 401:
+        # Ключ истёк — пробуем ещё раз без ключа
+        response = requests.get(url, headers=headers, timeout=timeout)
+    return response
+
+
 def hash_password(password, salt_hex):
     # PBKDF2 — специальный медленный способ сделать «отпечаток» пароля
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
