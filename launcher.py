@@ -7,7 +7,6 @@ import json          # сохранение настроек в файл
 import uuid
 import queue         # «почтовый ящик» между фоновой работой и окном
 import ctypes        # чтобы спросить у Windows, сколько памяти в компьютере
-import hmac          # безопасное сравнение «отпечатков» паролей
 import hashlib
 import threading     # запуск работы в фоне
 import subprocess
@@ -17,13 +16,14 @@ from tkinter import ttk, messagebox
 import minecraft_launcher_lib as mll
 import pack_sync
 import updater
+import accounts      # вход и регистрация (репозиторий flauncher-players)
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.5"
+LAUNCHER_VERSION = "0.6"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
-PASSWORD_ITERATIONS = 200_000   # должно совпадать с ITERATIONS в add_player.py
+NICK_RULE = r"[A-Za-z0-9_]{3,16}"   # ник: 3–16 символов, латиница, цифры и _ (так требует Minecraft)
 
 # Цвета окна
 BG = "#1e1f29"        # фон
@@ -88,22 +88,6 @@ def save_settings(nickname, ram, password, remember):
         json.dump(data, f, ensure_ascii=False)
 
 
-# ---------- Проверка ника и пароля ----------
-
-def check_login(players, nickname, password):
-    # Ищем игрока по нику (без учёта больших/маленьких букв) и сверяем «отпечаток» пароля.
-    # Возвращаем запись игрока, если всё верно, иначе None.
-    for player in players:
-        if player["nick"].lower() == nickname.lower():
-            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
-                                         bytes.fromhex(player["salt"]), PASSWORD_ITERATIONS)
-            # compare_digest сравнивает так, чтобы по времени нельзя было угадать пароль
-            if hmac.compare_digest(digest.hex(), player["hash"]):
-                return player
-            return None
-    return None
-
-
 def offline_uuid(name):
     # ID игрока из ника — как в офлайн-режиме Minecraft (объяснение в test_launch.py)
     digest = hashlib.md5(("OfflinePlayer:" + name).encode("utf-8")).digest()
@@ -150,17 +134,17 @@ def install_and_run(nickname, password, ram_gb):
     status = callback["setStatus"]
 
     try:
-        status("Проверяю сборку на GitHub...")
-        modpack = pack_sync.get_modpack()
-
         # Сначала проверяем ник и пароль — до долгих скачиваний
         status("Проверяю ник и пароль...")
-        player = check_login(pack_sync.get_players(modpack), nickname, password)
+        player = accounts.check_login(nickname, password)
         if player is None:
             raise RuntimeError("Неверный ник или пароль")
         # Берём ник точно как в списке (HE_MAKC, а не he_makc) —
         # от больших/маленьких букв зависит ID игрока, а с ним и вещи в мире
         nickname = player["nick"]
+
+        status("Проверяю сборку на GitHub...")
+        modpack = pack_sync.get_modpack()
         mc_version = modpack["minecraft"]
         neoforge_version = modpack["neoforge"]
 
@@ -203,13 +187,87 @@ def install_and_run(nickname, password, ram_gb):
     messages.put(("done",))       # работа закончена — можно снова нажимать «Играть»
 
 
-# ---------- Окно ----------
+def register_in_background(nickname, password):
+    # Регистрация на GitHub (в фоне, чтобы окно не зависло)
+    try:
+        accounts.register(nickname, password)
+        messages.put(("registered", nickname, password))
+    except Exception as error:
+        messages.put(("register_error", str(error)))
+
+
+# ---------- Окно регистрации ----------
+
+# Здесь храним части окна регистрации, пока оно открыто
+register_ui = {}
+
+
+def open_register():
+    # Окно «Регистрация» поверх основного
+    if register_ui.get("dialog"):
+        register_ui["dialog"].lift()   # уже открыто — просто показать
+        return
+
+    dialog = tk.Toplevel(window)
+    dialog.title("Регистрация")
+    dialog.geometry("360x240")
+    dialog.resizable(False, False)
+    dialog.configure(bg=BG)
+    dialog.transient(window)           # окно «привязано» к основному
+
+    tk.Label(dialog, text="Новый аккаунт", font=("Segoe UI", 14, "bold"), bg=BG, fg=FG).pack(pady=(14, 8))
+
+    entries = {}
+    for key, title, hidden in [("nick", "Ник:", False), ("pass1", "Пароль:", True), ("pass2", "Повтор:", True)]:
+        row = tk.Frame(dialog, bg=BG)
+        row.pack(pady=3)
+        tk.Label(row, text=title, width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
+        entry = tk.Entry(row, width=20, font=("Segoe UI", 11), show="•" if hidden else "")
+        entry.pack(side="left")
+        entries[key] = entry
+
+    button = tk.Button(dialog, text="Создать аккаунт", font=("Segoe UI", 11, "bold"),
+                       bg=ACCENT, fg="white", relief="flat", command=on_register)
+    button.pack(pady=10)
+    info = tk.Label(dialog, text="", font=("Segoe UI", 9), bg=BG, fg="#a0a0a0")
+    info.pack()
+
+    def on_close():
+        register_ui.clear()
+        dialog.destroy()
+
+    dialog.protocol("WM_DELETE_WINDOW", on_close)   # нажали крестик
+    register_ui.update(dialog=dialog, entries=entries, button=button, info=info, close=on_close)
+    entries["nick"].focus()
+
+
+def on_register():
+    # Нажали «Создать аккаунт»
+    entries = register_ui["entries"]
+    nickname = entries["nick"].get().strip()
+    password = entries["pass1"].get()
+    if not re.fullmatch(NICK_RULE, nickname):
+        messagebox.showwarning("Ник", "Ник должен быть 3–16 символов:\nлатинские буквы, цифры и _",
+                               parent=register_ui["dialog"])
+        return
+    if len(password) < 4:
+        messagebox.showwarning("Пароль", "Пароль должен быть хотя бы 4 символа", parent=register_ui["dialog"])
+        return
+    if entries["pass2"].get() != password:
+        messagebox.showwarning("Пароль", "Пароли не совпадают", parent=register_ui["dialog"])
+        return
+
+    register_ui["button"].config(state="disabled")
+    register_ui["info"].config(text="Создаю аккаунт...")
+    threading.Thread(target=register_in_background, args=(nickname, password), daemon=True).start()
+
+
+# ---------- Основное окно ----------
 
 def on_play():
     # Вызывается при нажатии кнопки «Играть»
     nickname = nick_entry.get().strip()
-    # Ник: 3–16 символов, латинские буквы, цифры и _ (так требует Minecraft)
-    if not re.fullmatch(r"[A-Za-z0-9_]{3,16}", nickname):
+    if not re.fullmatch(NICK_RULE, nickname):
         messagebox.showwarning("Ник", "Ник должен быть 3–16 символов:\nлатинские буквы, цифры и _")
         return
 
@@ -256,12 +314,27 @@ def check_messages():
         elif kind == "restart":
             window.destroy()   # закрываем старую версию лаунчера
             return
+        elif kind == "registered":
+            # Аккаунт создан: закрываем окно регистрации и подставляем ник и пароль
+            nickname, password = message[1], message[2]
+            if register_ui:
+                register_ui["close"]()
+            nick_entry.delete(0, "end")
+            nick_entry.insert(0, nickname)
+            pass_entry.delete(0, "end")
+            pass_entry.insert(0, password)
+            messagebox.showinfo("Регистрация", "Аккаунт " + nickname + " создан!\nТеперь нажми «ИГРАТЬ».")
+        elif kind == "register_error":
+            if register_ui:
+                register_ui["button"].config(state="normal")
+                register_ui["info"].config(text="")
+                messagebox.showerror("Регистрация", message[1], parent=register_ui["dialog"])
     window.after(100, check_messages)   # проверить ящик снова через 100 мс
 
 
 window = tk.Tk()
 window.title("Flauncher " + LAUNCHER_VERSION)
-window.geometry("420x390")
+window.geometry("420x420")
 window.resizable(False, False)
 window.configure(bg=BG)
 
@@ -329,7 +402,12 @@ on_ram_change(ram_scale.get())
 play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold"), width=14,
                         bg=ACCENT, fg="white", activebackground="#358a41", relief="flat",
                         command=on_play)
-play_button.pack(pady=15)
+play_button.pack(pady=(15, 4))
+
+# Кнопка «Регистрация» — неброская, под «Играть»
+tk.Button(window, text="Нет аккаунта? Регистрация", font=("Segoe UI", 9, "underline"),
+          bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
+          relief="flat", bd=0, cursor="hand2", command=open_register).pack(pady=(0, 10))
 
 # Полоска загрузки и текст под ней
 progress_bar = ttk.Progressbar(window, length=360, mode="determinate")

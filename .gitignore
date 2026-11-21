@@ -5,3 +5,6 @@ __pycache__/
 build/
 dist/
 *.spec
+
+# Ключ доступа к репозиторию аккаунтов — НИКОГДА не отправлять на GitHub
+players_token.txt
