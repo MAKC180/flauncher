@@ -45,3 +45,6 @@ try:
         print("Нет такого пункта")
 except Exception as error:
     print("Ошибка:", error)
+
+# Ждём Enter — иначе при запуске двойным кликом окно сразу закроется
+input("\nНажми Enter, чтобы закрыть...")
