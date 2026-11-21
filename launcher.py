@@ -18,7 +18,7 @@ import pack_sync
 import updater
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.3"
+LAUNCHER_VERSION = "0.4"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -100,7 +100,6 @@ def make_callback():
 
 def check_launcher_update():
     # Запускается один раз при старте лаунчера
-    updater.cleanup_old()
     if not updater.is_exe():
         # Запущены как launcher.py (во время разработки) — обновлять нечего
         messages.put(("done",))
@@ -290,6 +289,8 @@ status_label.pack(pady=5)
 # Пока проверяем обновления лаунчера — кнопка выключена
 play_button.config(state="disabled")
 threading.Thread(target=check_launcher_update, daemon=True).start()
+# Отдельно, чтобы не задерживать проверку обновлений — убираем Flauncher.exe.old
+threading.Thread(target=updater.cleanup_old, daemon=True).start()
 
 check_messages()     # начинаем проверять «почтовый ящик»
 window.mainloop()    # показываем окно и ждём действий игрока

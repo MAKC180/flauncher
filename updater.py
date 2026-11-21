@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import subprocess
 import requests
 
@@ -23,13 +24,21 @@ def version_tuple(text):
 
 
 def cleanup_old():
-    # Удаляем старую версию, которая осталась после прошлого обновления
+    # Удаляем старую версию, которая осталась после обновления.
+    # Сразу после обновления старая версия может ещё закрываться — тогда Windows
+    # не даёт удалить файл. Поэтому пробуем 20 раз с паузой 0,5 с (всего ~10 секунд).
     old_path = sys.executable + ".old"
-    if is_exe() and os.path.exists(old_path):
+    if not is_exe():
+        return
+    for attempt in range(20):
+        if not os.path.exists(old_path):
+            return            # файла нет — удалять нечего
         try:
             os.remove(old_path)
+            return            # удалили — готово
         except OSError:
-            pass   # не получилось — не страшно, удалим в следующий раз
+            time.sleep(0.5)   # ещё занят — ждём и пробуем снова
+    # Не получилось за 10 секунд — не страшно, удалим при следующем запуске
 
 
 def check_for_update(current_version):
