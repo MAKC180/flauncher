@@ -6,6 +6,7 @@ import re            # проверка ника по шаблону
 import json          # сохранение настроек в файл
 import uuid
 import queue         # «почтовый ящик» между фоновой работой и окном
+import ctypes        # чтобы спросить у Windows, сколько памяти в компьютере
 import hashlib
 import threading     # запуск работы в фоне
 import subprocess
@@ -17,10 +18,10 @@ import pack_sync
 import updater
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.1"
+LAUNCHER_VERSION = "0.2"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
-RAM_CHOICES = ["4 ГБ", "6 ГБ", "8 ГБ", "10 ГБ", "12 ГБ"]
+MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
 
 # Цвета окна
 BG = "#1e1f29"        # фон
@@ -34,13 +35,44 @@ messages = queue.Queue()
 
 # ---------- Настройки игрока (ник и память) ----------
 
+class MemoryStatus(ctypes.Structure):
+    # «Анкета», которую заполняет Windows (функция GlobalMemoryStatusEx).
+    # Поля должны идти именно в таком порядке — так их описывает Windows.
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),      # всего памяти — это нам и нужно
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def get_max_ram():
+    # Сколько ГБ можно отдать игре: вся память минус 2 ГБ для Windows
+    status = MemoryStatus()
+    status.dwLength = ctypes.sizeof(MemoryStatus)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
+    total_gb = round(status.ullTotalPhys / 1024 ** 3)
+    return max(MIN_RAM, total_gb - 2)
+
+
 def load_settings():
     # Читаем сохранённые настройки. Если файла ещё нет — значения по умолчанию.
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            settings = json.load(f)
     except (OSError, ValueError):
-        return {"nickname": "", "ram": "6 ГБ"}
+        settings = {}
+    # Раньше память хранилась текстом "6 ГБ", теперь числом 6 — понимаем оба варианта
+    ram = settings.get("ram", 6)
+    if isinstance(ram, str):
+        ram = int(ram.split()[0])
+    settings["ram"] = ram
+    return settings
 
 
 def save_settings(nickname, ram):
@@ -150,11 +182,11 @@ def on_play():
         messagebox.showwarning("Ник", "Ник должен быть 3–16 символов:\nлатинские буквы, цифры и _")
         return
 
-    ram = ram_box.get()
+    ram = int(ram_scale.get())             # значение ползунка, например 6
     save_settings(nickname, ram)
 
     play_button.config(state="disabled")   # защита от двойного нажатия
-    ram_gb = ram.split()[0]                # "6 ГБ" -> "6"
+    ram_gb = str(ram)                      # 6 -> "6" (для строки -Xmx6G)
     # daemon=True — фоновая работа закончится вместе с окном
     threading.Thread(target=install_and_run, args=(nickname, ram_gb), daemon=True).start()
 
@@ -209,13 +241,28 @@ nick_entry = tk.Entry(row, width=22, font=("Segoe UI", 11))
 nick_entry.insert(0, settings.get("nickname", ""))
 nick_entry.pack(side="left")
 
-# Строка «Память»
+# Строка «Память»: ползунок + подпись «6 ГБ»
+max_ram = get_max_ram()
 row = tk.Frame(window, bg=BG)
 row.pack(pady=5)
 tk.Label(row, text="Память:", width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
-ram_box = ttk.Combobox(row, values=RAM_CHOICES, state="readonly", width=20, font=("Segoe UI", 11))
-ram_box.set(settings.get("ram", "6 ГБ"))
-ram_box.pack(side="left")
+ram_value_label = tk.Label(row, width=6, font=("Segoe UI", 11, "bold"), bg=BG, fg=FG)
+
+
+def on_ram_change(value):
+    # Ползунок вызывает эту функцию при каждом движении — обновляем подпись
+    ram_value_label.config(text=str(int(float(value))) + " ГБ")
+
+
+ram_scale = tk.Scale(row, from_=MIN_RAM, to=max_ram, resolution=1, orient="horizontal",
+                     length=170, showvalue=False, command=on_ram_change,
+                     bg=BG, fg=FG, troughcolor="#3a3b47", highlightthickness=0,
+                     activebackground=ACCENT, sliderrelief="flat")
+# Сохранённое значение не может быть больше, чем есть памяти
+ram_scale.set(min(settings["ram"], max_ram))
+ram_scale.pack(side="left")
+ram_value_label.pack(side="left", padx=(8, 0))
+on_ram_change(ram_scale.get())
 
 # Кнопка «Играть»
 play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold"), width=14,
