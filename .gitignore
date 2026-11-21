@@ -4,3 +4,4 @@ __pycache__/
 # Папки PyInstaller (сборка .exe) — собираются заново каждый раз
 build/
 dist/
+*.spec
