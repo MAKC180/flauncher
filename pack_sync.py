@@ -42,6 +42,15 @@ def get_modpack():
     return modpack
 
 
+def get_players(modpack):
+    # Скачиваем список игроков players.json из того же «снимка», что и сборку
+    response = requests.get(modpack["base_url"] + "players.json", timeout=30)
+    if response.status_code == 404:
+        raise RuntimeError("Список игроков не найден на GitHub")
+    response.raise_for_status()
+    return response.json()["players"]
+
+
 def download_file(base_url, rel_path, local_path):
     # quote() заменяет пробелы и спецсимволы в имени файла на %20 и т.п., чтобы ссылка работала
     url = base_url + urllib.parse.quote(rel_path)

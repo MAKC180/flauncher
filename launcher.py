@@ -7,6 +7,7 @@ import json          # сохранение настроек в файл
 import uuid
 import queue         # «почтовый ящик» между фоновой работой и окном
 import ctypes        # чтобы спросить у Windows, сколько памяти в компьютере
+import hmac          # безопасное сравнение «отпечатков» паролей
 import hashlib
 import threading     # запуск работы в фоне
 import subprocess
@@ -18,10 +19,11 @@ import pack_sync
 import updater
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.4"
+LAUNCHER_VERSION = "0.5"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
+PASSWORD_ITERATIONS = 200_000   # должно совпадать с ITERATIONS в add_player.py
 
 # Цвета окна
 BG = "#1e1f29"        # фон
@@ -72,13 +74,34 @@ def load_settings():
     if isinstance(ram, str):
         ram = int(ram.split()[0])
     settings["ram"] = ram
+    settings.setdefault("password", "")
+    settings.setdefault("remember", True)
     return settings
 
 
-def save_settings(nickname, ram):
+def save_settings(nickname, ram, password, remember):
+    # Пароль сохраняем на компьютере игрока, только если стоит галочка «Запомнить»
     os.makedirs(GAME_DIR, exist_ok=True)
+    data = {"nickname": nickname, "ram": ram,
+            "password": password if remember else "", "remember": remember}
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"nickname": nickname, "ram": ram}, f, ensure_ascii=False)
+        json.dump(data, f, ensure_ascii=False)
+
+
+# ---------- Проверка ника и пароля ----------
+
+def check_login(players, nickname, password):
+    # Ищем игрока по нику (без учёта больших/маленьких букв) и сверяем «отпечаток» пароля.
+    # Возвращаем запись игрока, если всё верно, иначе None.
+    for player in players:
+        if player["nick"].lower() == nickname.lower():
+            digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"),
+                                         bytes.fromhex(player["salt"]), PASSWORD_ITERATIONS)
+            # compare_digest сравнивает так, чтобы по времени нельзя было угадать пароль
+            if hmac.compare_digest(digest.hex(), player["hash"]):
+                return player
+            return None
+    return None
 
 
 def offline_uuid(name):
@@ -122,13 +145,22 @@ def check_launcher_update():
     messages.put(("done",))
 
 
-def install_and_run(nickname, ram_gb):
+def install_and_run(nickname, password, ram_gb):
     callback = make_callback()
     status = callback["setStatus"]
 
     try:
         status("Проверяю сборку на GitHub...")
         modpack = pack_sync.get_modpack()
+
+        # Сначала проверяем ник и пароль — до долгих скачиваний
+        status("Проверяю ник и пароль...")
+        player = check_login(pack_sync.get_players(modpack), nickname, password)
+        if player is None:
+            raise RuntimeError("Неверный ник или пароль")
+        # Берём ник точно как в списке (HE_MAKC, а не he_makc) —
+        # от больших/маленьких букв зависит ID игрока, а с ним и вещи в мире
+        nickname = player["nick"]
         mc_version = modpack["minecraft"]
         neoforge_version = modpack["neoforge"]
 
@@ -181,13 +213,18 @@ def on_play():
         messagebox.showwarning("Ник", "Ник должен быть 3–16 символов:\nлатинские буквы, цифры и _")
         return
 
+    password = pass_entry.get()
+    if not password:
+        messagebox.showwarning("Пароль", "Введи пароль")
+        return
+
     ram = int(ram_scale.get())             # значение ползунка, например 6
-    save_settings(nickname, ram)
+    save_settings(nickname, ram, password, remember_var.get())
 
     play_button.config(state="disabled")   # защита от двойного нажатия
     ram_gb = str(ram)                      # 6 -> "6" (для строки -Xmx6G)
     # daemon=True — фоновая работа закончится вместе с окном
-    threading.Thread(target=install_and_run, args=(nickname, ram_gb), daemon=True).start()
+    threading.Thread(target=install_and_run, args=(nickname, password, ram_gb), daemon=True).start()
 
 
 def check_messages():
@@ -224,7 +261,7 @@ def check_messages():
 
 window = tk.Tk()
 window.title("Flauncher " + LAUNCHER_VERSION)
-window.geometry("420x320")
+window.geometry("420x390")
 window.resizable(False, False)
 window.configure(bg=BG)
 
@@ -239,6 +276,20 @@ tk.Label(row, text="Ник:", width=8, anchor="w", font=("Segoe UI", 11), bg=BG,
 nick_entry = tk.Entry(row, width=22, font=("Segoe UI", 11))
 nick_entry.insert(0, settings.get("nickname", ""))
 nick_entry.pack(side="left")
+
+# Строка «Пароль» — show="•" прячет символы
+row = tk.Frame(window, bg=BG)
+row.pack(pady=5)
+tk.Label(row, text="Пароль:", width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
+pass_entry = tk.Entry(row, width=22, font=("Segoe UI", 11), show="•")
+pass_entry.insert(0, settings["password"])
+pass_entry.pack(side="left")
+
+# Галочка «Запомнить пароль»
+remember_var = tk.BooleanVar(value=settings["remember"])
+tk.Checkbutton(window, text="Запомнить пароль", variable=remember_var,
+               font=("Segoe UI", 9), bg=BG, fg=FG, selectcolor=BG,
+               activebackground=BG, activeforeground=FG).pack()
 
 # Строка «Память»: ползунок + подпись «6 ГБ»
 max_ram = get_max_ram()
