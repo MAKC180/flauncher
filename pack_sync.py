@@ -63,16 +63,27 @@ def do_nothing(*args):
     pass
 
 
-def sync_pack(game_dir, modpack, callback):
+def get_disabled_files(modpack, disabled_names):
+    # disabled_names — названия модов, с которых игрок снял галочку в окне «Моды».
+    # Возвращаем пути их файлов: ["mods/jei-....jar", ...]
+    disabled_files = set()
+    for entry in modpack.get("optional", []):
+        if entry["name"] in disabled_names:
+            disabled_files.update(entry["files"])
+    return disabled_files
+
+
+def sync_pack(game_dir, modpack, callback, disabled_files=()):
     # callback — словарь функций, как у minecraft_launcher_lib:
     #   "setStatus"   — сообщить текст («Скачиваю ...»)
     #   "setMax"      — сколько всего шагов (для полоски загрузки)
     #   "setProgress" — сколько шагов уже сделано
+    # disabled_files — моды, которые игрок выключил: их не качаем, а если есть — удаляем
     status = callback.get("setStatus", do_nothing)
     set_max = callback.get("setMax", do_nothing)
     set_progress = callback.get("setProgress", do_nothing)
 
-    files = modpack["files"]
+    files = [file for file in modpack["files"] if file["path"] not in disabled_files]
     set_max(len(files))
     status("Проверяю моды")
 

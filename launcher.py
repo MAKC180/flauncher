@@ -19,7 +19,7 @@ import updater
 import accounts      # вход и регистрация (репозиторий flauncher-players)
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.7"
+LAUNCHER_VERSION = "0.8"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -76,16 +76,24 @@ def load_settings():
     settings["ram"] = ram
     settings.setdefault("password", "")
     settings.setdefault("remember", True)
+    settings.setdefault("disabled_mods", [])   # названия выключенных модов (окно «Моды»)
     return settings
+
+
+def write_settings():
+    # Записываем все настройки (словарь settings) в файл
+    os.makedirs(GAME_DIR, exist_ok=True)
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False)
 
 
 def save_settings(nickname, ram, password, remember):
     # Пароль сохраняем на компьютере игрока, только если стоит галочка «Запомнить»
-    os.makedirs(GAME_DIR, exist_ok=True)
-    data = {"nickname": nickname, "ram": ram,
-            "password": password if remember else "", "remember": remember}
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    settings["nickname"] = nickname
+    settings["ram"] = ram
+    settings["password"] = password if remember else ""
+    settings["remember"] = remember
+    write_settings()
 
 
 def offline_uuid(name):
@@ -163,7 +171,9 @@ def install_and_run(nickname, password, ram_gb):
             neoforge.install(mc_version, GAME_DIR, loader_version=neoforge_version,
                              callback=callback, java=java_path)
 
-        pack_sync.sync_pack(GAME_DIR, modpack, callback)
+        # Моды, выключенные в окне «Моды», не скачиваем (а если уже скачаны — удаляем)
+        disabled_files = pack_sync.get_disabled_files(modpack, settings["disabled_mods"])
+        pack_sync.sync_pack(GAME_DIR, modpack, callback, disabled_files)
 
         options = {
             "username": nickname,
@@ -260,6 +270,53 @@ def on_register():
     register_ui["button"].config(state="disabled")
     register_ui["info"].config(text="Создаю аккаунт...")
     threading.Thread(target=register_in_background, args=(nickname, password), daemon=True).start()
+
+
+# ---------- Окно «Моды» ----------
+
+def open_mods():
+    # Окно с галочками: какие необязательные моды включены
+    try:
+        modpack = pack_sync.get_modpack()   # список берём из сборки на GitHub
+    except Exception as error:
+        messagebox.showerror("Моды", "Не удалось получить список модов:\n" + str(error))
+        return
+    optional = modpack.get("optional", [])
+    if not optional:
+        messagebox.showinfo("Моды", "В сборке нет модов, которые можно выключить")
+        return
+
+    dialog = tk.Toplevel(window)
+    dialog.title("Моды")
+    dialog.resizable(False, False)
+    dialog.configure(bg=BG)
+    dialog.transient(window)
+    dialog.grab_set()   # пока окно открыто, основное окно не нажимается
+
+    tk.Label(dialog, text="Необязательные моды", font=("Segoe UI", 14, "bold"),
+             bg=BG, fg=FG).pack(pady=(12, 2), padx=20)
+    tk.Label(dialog, text="Сними галочку, чтобы выключить мод.\nНа сервер и других игроков это не влияет.",
+             font=("Segoe UI", 9), bg=BG, fg="#a0a0a0").pack(pady=(0, 8))
+
+    # Для каждого мода — галочка. Галочка стоит, если мода нет в списке выключенных.
+    checks = {}
+    for entry in optional:
+        name = entry["name"]
+        var = tk.BooleanVar(value=name not in settings["disabled_mods"])
+        tk.Checkbutton(dialog, text=name, variable=var, anchor="w",
+                       font=("Segoe UI", 10), bg=BG, fg=FG, selectcolor=BG,
+                       activebackground=BG, activeforeground=FG).pack(fill="x", padx=20)
+        checks[name] = var
+
+    def on_save():
+        # Запоминаем названия модов, у которых галочка снята
+        settings["disabled_mods"] = [name for name, var in checks.items() if not var.get()]
+        write_settings()
+        dialog.destroy()
+        status_label.config(text="Моды сохранены — применятся при нажатии «ИГРАТЬ»")
+
+    tk.Button(dialog, text="Сохранить", font=("Segoe UI", 11, "bold"), width=12,
+              bg=ACCENT, fg="white", relief="flat", command=on_save).pack(pady=12)
 
 
 # ---------- Основное окно ----------
@@ -404,10 +461,13 @@ play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold
                         command=on_play)
 play_button.pack(pady=(15, 4))
 
-# Кнопка «Регистрация» — неброская, под «Играть»
-tk.Button(window, text="Нет аккаунта? Регистрация", font=("Segoe UI", 9, "underline"),
-          bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
-          relief="flat", bd=0, cursor="hand2", command=open_register).pack(pady=(0, 10))
+# Две неброские кнопки-ссылки под «Играть»: «Моды» и «Регистрация»
+row = tk.Frame(window, bg=BG)
+row.pack(pady=(0, 10))
+for text, command in [("Моды", open_mods), ("Нет аккаунта? Регистрация", open_register)]:
+    tk.Button(row, text=text, font=("Segoe UI", 9, "underline"),
+              bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
+              relief="flat", bd=0, cursor="hand2", command=command).pack(side="left", padx=10)
 
 # Полоска загрузки и текст под ней
 progress_bar = ttk.Progressbar(window, length=360, mode="determinate")
