@@ -19,7 +19,7 @@ import updater
 import accounts      # вход и регистрация (репозиторий flauncher-players)
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.8"
+LAUNCHER_VERSION = "0.9"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -461,13 +461,37 @@ play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold
                         command=on_play)
 play_button.pack(pady=(15, 4))
 
-# Две неброские кнопки-ссылки под «Играть»: «Моды» и «Регистрация»
-row = tk.Frame(window, bg=BG)
-row.pack(pady=(0, 10))
-for text, command in [("Моды", open_mods), ("Нет аккаунта? Регистрация", open_register)]:
-    tk.Button(row, text=text, font=("Segoe UI", 9, "underline"),
-              bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
-              relief="flat", bd=0, cursor="hand2", command=command).pack(side="left", padx=10)
+# Кнопка «Регистрация» — неброская, под «Играть»
+tk.Button(window, text="Нет аккаунта? Регистрация", font=("Segoe UI", 9, "underline"),
+          bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
+          relief="flat", bd=0, cursor="hand2", command=open_register).pack(pady=(0, 10))
+
+
+# Кнопка «Настройки» (шестерёнка) в правом верхнем углу.
+# При нажатии раскрывается меню: «Моды» и «Расположение папки».
+def open_game_folder():
+    # Открываем папку лаунчера (%APPDATA%\.flauncher) в Проводнике
+    os.makedirs(GAME_DIR, exist_ok=True)
+    os.startfile(GAME_DIR)
+
+
+settings_menu = tk.Menu(window, tearoff=0, font=("Segoe UI", 10))   # tearoff=0 — без лишней пунктирной строки
+settings_menu.add_command(label="Моды", command=open_mods)
+settings_menu.add_command(label="Расположение папки", command=open_game_folder)
+
+
+def show_settings_menu():
+    # Показываем меню прямо под кнопкой-шестерёнкой
+    x = settings_button.winfo_rootx()
+    y = settings_button.winfo_rooty() + settings_button.winfo_height()
+    settings_menu.tk_popup(x, y)
+
+
+settings_button = tk.Button(window, text="⚙", font=("Segoe UI Symbol", 14),
+                            bg=BG, fg=FG, activebackground="#3a3b47", activeforeground=FG,
+                            relief="flat", bd=0, cursor="hand2", command=show_settings_menu)
+# place — поставить в точное место: в правый верхний угол с отступом 8 точек
+settings_button.place(relx=1.0, x=-8, y=8, anchor="ne")
 
 # Полоска загрузки и текст под ней
 progress_bar = ttk.Progressbar(window, length=360, mode="determinate")
