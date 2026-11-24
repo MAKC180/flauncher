@@ -8,6 +8,7 @@ import uuid
 import queue         # «почтовый ящик» между фоновой работой и окном
 import ctypes        # чтобы спросить у Windows, сколько памяти в компьютере
 import hashlib
+import time          # пауза между проверками сервера
 import threading     # запуск работы в фоне
 import subprocess
 import tkinter as tk
@@ -17,9 +18,10 @@ import minecraft_launcher_lib as mll
 import pack_sync
 import updater
 import accounts      # вход и регистрация (репозиторий flauncher-players)
+import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.9"
+LAUNCHER_VERSION = "1.0"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -135,6 +137,24 @@ def check_launcher_update():
         # Обновление не удалось (нет интернета и т.п.) — играть всё равно можно
         callback["setStatus"]("Не удалось проверить обновления лаунчера")
     messages.put(("done",))
+
+
+def watch_server():
+    # Работает в фоне всё время, пока открыт лаунчер:
+    # раз в 30 секунд узнаёт статус сервера и кладёт его в «почтовый ящик».
+    address = None
+    while True:
+        if address is None:
+            # Адрес сервера берём из сборки на GitHub (modpack.json -> "server")
+            try:
+                server = pack_sync.get_modpack().get("server")
+            except Exception:
+                server = None
+            if server:
+                address = server["address"]
+        if address:
+            messages.put(("server", server_status.get_status(address)))
+        time.sleep(30)
 
 
 def install_and_run(nickname, password, ram_gb):
@@ -342,6 +362,21 @@ def on_play():
     threading.Thread(target=install_and_run, args=(nickname, password, ram_gb), daemon=True).start()
 
 
+def show_server_status(result):
+    # Показываем статус сервера под ползунком памяти
+    state = result["state"]
+    if state == "online":
+        text = "● Сервер онлайн · {} из {} · {} мс".format(result["online"], result["max"], result["ping"])
+        server_label.config(text=text, fg="#4cc35e")            # зелёный
+        players_label.config(text=", ".join(result["players"]))  # ники через запятую
+    elif state == "no_radmin":
+        server_label.config(text="● Radmin VPN выключен", fg="#f0a030")   # оранжевый
+        players_label.config(text="Включи Radmin VPN, иначе не получится зайти на сервер")
+    else:
+        server_label.config(text="● Сервер выключен", fg="#a0a0a0")   # серый
+        players_label.config(text="")
+
+
 def check_messages():
     # Каждые 100 мс забираем все сообщения из ящика и обновляем окно
     while True:
@@ -381,6 +416,8 @@ def check_messages():
             pass_entry.delete(0, "end")
             pass_entry.insert(0, password)
             messagebox.showinfo("Регистрация", "Аккаунт " + nickname + " создан!\nТеперь нажми «ИГРАТЬ».")
+        elif kind == "server":
+            show_server_status(message[1])
         elif kind == "register_error":
             if register_ui:
                 register_ui["button"].config(state="normal")
@@ -391,7 +428,7 @@ def check_messages():
 
 window = tk.Tk()
 window.title("Flauncher " + LAUNCHER_VERSION)
-window.geometry("420x420")
+window.geometry("420x470")
 window.resizable(False, False)
 window.configure(bg=BG)
 
@@ -455,11 +492,17 @@ ram_hint_label = tk.Label(window, text="", font=("Segoe UI", 8), bg=BG, fg="#f0a
 ram_hint_label.pack()
 on_ram_change(ram_scale.get())
 
+# Статус сервера: строка «● Сервер онлайн · ...» и ники игроков под ней
+server_label = tk.Label(window, text="● Проверяю сервер...", font=("Segoe UI", 10), bg=BG, fg="#a0a0a0")
+server_label.pack(pady=(6, 0))
+players_label = tk.Label(window, text="", font=("Segoe UI", 9), bg=BG, fg="#a0a0a0", wraplength=380)
+players_label.pack()
+
 # Кнопка «Играть»
 play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold"), width=14,
                         bg=ACCENT, fg="white", activebackground="#358a41", relief="flat",
                         command=on_play)
-play_button.pack(pady=(15, 4))
+play_button.pack(pady=(8, 4))
 
 # Кнопка «Регистрация» — неброская, под «Играть»
 tk.Button(window, text="Нет аккаунта? Регистрация", font=("Segoe UI", 9, "underline"),
@@ -504,6 +547,8 @@ play_button.config(state="disabled")
 threading.Thread(target=check_launcher_update, daemon=True).start()
 # Отдельно, чтобы не задерживать проверку обновлений — убираем Flauncher.exe.old
 threading.Thread(target=updater.cleanup_old, daemon=True).start()
+# Следим за сервером (раз в 30 секунд)
+threading.Thread(target=watch_server, daemon=True).start()
 
 check_messages()     # начинаем проверять «почтовый ящик»
 window.mainloop()    # показываем окно и ждём действий игрока

@@ -5,8 +5,10 @@ import hashlib
 import urllib.parse
 import requests   # библиотека для скачивания из интернета
 import accounts   # отсюда берём запрос к GitHub с ключом
+from concurrent.futures import ThreadPoolExecutor, as_completed   # скачивание по нескольку файлов сразу
 
 REPO = "MAKC180/flauncher-pack"   # репозиторий сборки на GitHub
+DOWNLOAD_THREADS = 6              # сколько файлов качать одновременно
 
 
 def sha1_of_file(path):
@@ -87,26 +89,43 @@ def sync_pack(game_dir, modpack, callback, disabled_files=()):
     set_max(len(files))
     status("Проверяю моды")
 
-    # 1) Скачиваем то, чего нет или что изменилось
+    # 1) Находим файлы, которых нет или которые изменились
+    to_download = []
     for number, file in enumerate(files, start=1):
         set_progress(number)
         local_path = os.path.join(game_dir, file["path"])
         if os.path.exists(local_path) and sha1_of_file(local_path) == file["sha1"]:
             continue   # файл уже такой, как нужно — пропускаем
-        status(f"[{number}/{len(files)}] Скачиваю {file['path']}")
+        to_download.append(file)
+
+    # 2) Скачиваем их по нескольку сразу (DOWNLOAD_THREADS штук одновременно).
+    #    Пока один мод качается, остальные не ждут — так в несколько раз быстрее.
+    def download_one(file):
+        local_path = os.path.join(game_dir, file["path"])
         # До 3 попыток: иногда интернет или GitHub отдают файл с ошибкой
         for attempt in range(3):
             try:
                 download_file(modpack["base_url"], file["path"], local_path)
                 if sha1_of_file(local_path) == file["sha1"]:
-                    break   # файл правильный — выходим из цикла попыток
+                    return file   # файл правильный — готово
             except requests.RequestException:
-                pass        # ошибка сети — просто пробуем ещё раз
-        else:
-            # сюда попадаем, только если все 3 попытки не удались
-            raise RuntimeError("Не удалось скачать файл: " + file["path"])
+                pass              # ошибка сети — просто пробуем ещё раз
+        # сюда попадаем, только если все 3 попытки не удались
+        raise RuntimeError("Не удалось скачать файл: " + file["path"])
 
-    # 2) Удаляем из mods моды, которых больше нет в сборке
+    if to_download:
+        set_max(len(to_download))
+        status(f"Скачиваю моды: 0 из {len(to_download)}")
+        # pool — «бригада» из нескольких помощников, каждый качает свой файл
+        with ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS) as pool:
+            jobs = [pool.submit(download_one, file) for file in to_download]
+            # as_completed отдаёт задания по мере того, как они заканчиваются
+            for done, job in enumerate(as_completed(jobs), start=1):
+                job.result()   # если файл не скачался — здесь появится ошибка
+                set_progress(done)
+                status(f"Скачиваю моды: {done} из {len(to_download)}")
+
+    # 3) Удаляем из mods моды, которых больше нет в сборке
     #    (папку config не чистим: моды сами создают там свои файлы)
     needed = set(file["path"] for file in files)
     mods_dir = os.path.join(game_dir, "mods")
