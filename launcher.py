@@ -21,7 +21,7 @@ import accounts      # вход и регистрация (репозитори�
 import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "1.0"
+LAUNCHER_VERSION = "0.10"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -171,7 +171,7 @@ def install_and_run(nickname, password, ram_gb):
         # от больших/маленьких букв зависит ID игрока, а с ним и вещи в мире
         nickname = player["nick"]
 
-        status("Проверяю сборку на GitHub...")
+        status("Проверяю моды...")
         modpack = pack_sync.get_modpack()
         mc_version = modpack["minecraft"]
         neoforge_version = modpack["neoforge"]
@@ -371,7 +371,7 @@ def show_server_status(result):
         players_label.config(text=", ".join(result["players"]))  # ники через запятую
     elif state == "no_radmin":
         server_label.config(text="● Radmin VPN выключен", fg="#f0a030")   # оранжевый
-        players_label.config(text="Включи Radmin VPN, иначе не получится зайти на сервер")
+        players_label.config(text="Включи Radmin VPN")
     else:
         server_label.config(text="● Сервер выключен", fg="#a0a0a0")   # серый
         players_label.config(text="")

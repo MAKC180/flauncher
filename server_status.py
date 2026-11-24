@@ -6,27 +6,26 @@ import socket
 from mcstatus import JavaServer   # готовая библиотека для такого запроса
 
 
-def radmin_is_on(address):
-    # Адреса Radmin VPN начинаются с "26.". Спрашиваем у Windows:
-    # «через какой свой адрес ты пойдёшь к серверу?» (сами данные при этом не отправляются).
-    # Если Radmin включён — Windows пойдёт через адрес Radmin, он тоже начинается с "26.".
-    # Если Radmin выключен или не установлен — пойдёт через обычный интернет (192.168... и т.п.).
-    host = address.split(":")[0]               # "26.1.82.220:25565" -> "26.1.82.220"
+def radmin_is_on():
+    # Когда Radmin VPN включён, у компьютера появляется ещё один адрес — он начинается с "26.".
+    # Спрашиваем у Windows все адреса этого компьютера и ищем среди них такой.
     try:
-        test = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        test.connect((host, 25565))
-        my_address = test.getsockname()[0]     # наш адрес, через который Windows идёт к серверу
-        test.close()
+        my_addresses = [info[4][0] for info in
+                        socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
     except OSError:
-        return False                           # Windows вообще не знает дороги к серверу
-    return my_address.startswith("26.")
+        return False
+    for my_address in my_addresses:            # например ["26.181.188.165", "192.168.0.112"]
+        if my_address.startswith("26."):
+            return True
+    return False
 
 
 def get_status(address):
     # Возвращаем словарь, который лаунчер покажет под кнопкой «ИГРАТЬ»:
     #   state   — "online" (работает), "offline" (выключен) или "no_radmin" (выключен Radmin)
     #   online, max, ping, players — сколько игроков, сколько мест, пинг в мс, ники
-    if address.startswith("26.") and not radmin_is_on(address):
+    # Адреса Radmin VPN начинаются с "26." — для такого сервера сначала проверяем Radmin
+    if address.startswith("26.") and not radmin_is_on():
         return {"state": "no_radmin"}
 
     try:
