@@ -8,6 +8,7 @@ import uuid
 import queue         # «почтовый ящик» между фоновой работой и окном
 import ctypes        # чтобы спросить у Windows, сколько памяти в компьютере
 import hashlib
+import shutil        # удаление папки целиком (испорченная Java)
 import time          # пауза между проверками сервера
 import threading     # запуск работы в фоне
 import subprocess
@@ -21,7 +22,7 @@ import accounts      # вход и регистрация (репозитори�
 import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.10"
+LAUNCHER_VERSION = "0.11"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -157,6 +158,23 @@ def watch_server():
         time.sleep(30)
 
 
+def install_minecraft(mc_version, callback):
+    # Ставим (или проверяем) Minecraft вместе с Java.
+    # Если файл Java испорчен и Windows не даёт его заменить —
+    # удаляем всю папку с Java (runtime) и ставим ещё раз.
+    runtime_dir = os.path.join(GAME_DIR, "runtime")
+    try:
+        mll.install.install_minecraft_version(mc_version, GAME_DIR, callback=callback)
+    except PermissionError as error:
+        # Ошибка не в папке Java — такое не чиним, пусть покажется игроку
+        bad_file = os.path.normcase(str(error.filename))
+        if not bad_file.startswith(os.path.normcase(runtime_dir)):
+            raise
+        callback["setStatus"]("Java повреждена — скачиваю заново...")
+        shutil.rmtree(runtime_dir)   # если файл всё ещё занят — здесь будет та же ошибка
+        mll.install.install_minecraft_version(mc_version, GAME_DIR, callback=callback)
+
+
 def install_and_run(nickname, password, ram_gb):
     callback = make_callback()
     status = callback["setStatus"]
@@ -177,7 +195,7 @@ def install_and_run(nickname, password, ram_gb):
         neoforge_version = modpack["neoforge"]
 
         status("Проверяю Minecraft " + mc_version + "...")
-        mll.install.install_minecraft_version(mc_version, GAME_DIR, callback=callback)
+        install_minecraft(mc_version, callback)
 
         runtime = mll.runtime.get_version_runtime_information(mc_version, GAME_DIR)
         java_path = mll.runtime.get_executable_path(runtime["name"], GAME_DIR)
@@ -211,6 +229,12 @@ def install_and_run(nickname, password, ram_gb):
         subprocess.run(command, cwd=GAME_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
         messages.put(("show",))   # игра закрыта — показываем окно снова
         status("Игра закрыта")
+    except PermissionError as error:
+        # Windows не дала изменить файл: он занят (игра ещё работает) или его держит антивирус
+        messages.put(("error", "Windows не даёт изменить файл игры:\n" + str(error.filename) +
+                      "\n\nСкорее всего, Minecraft ещё работает в фоне"
+                      " или файл блокирует антивирус.\n"
+                      "Перезагрузи компьютер и нажми «ИГРАТЬ» снова."))
     except Exception as error:
         messages.put(("error", str(error)))
 
