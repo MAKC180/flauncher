@@ -1,4 +1,4 @@
-# launcher.py — Flauncher: окно лаунчера.
+# launcher.py — Aetherium: окно лаунчера.
 # Окно (tkinter) + работа в фоне (поток), чтобы окно не «зависало» во время скачивания.
 
 import os
@@ -22,16 +22,23 @@ import accounts      # вход и регистрация (репозитори�
 import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.13"
+LAUNCHER_VERSION = "0.14"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
 NICK_RULE = r"[A-Za-z0-9_]{3,16}"   # ник: 3–16 символов, латиница, цифры и _ (так требует Minecraft)
 
 # Цвета окна
-BG = "#1e1f29"        # фон
-FG = "#e6e6e6"        # текст
-ACCENT = "#3fa34d"    # зелёная кнопка
+BG = "#0f1e3a"          # фон — тёмно-синий
+FG = "#d6dde8"          # обычный текст — светло-серый
+WHITE = "#ffffff"       # белый — только заголовок и надписи на кнопках, чтобы не слепило
+MUTED = "#93a6c2"       # подсказки и статус — серо-голубой
+ACCENT = "#3b82d6"      # синие кнопки («Сохранить», «Создать аккаунт»)
+LIGHT_BLUE = "#7cc4f5"  # голубой — ссылки и ползунок
+TROUGH = "#1f3560"      # дорожка ползунка и подсветка шестерёнки
+FIELD = "#e3e9f2"       # поля ввода — светло-серые, не ярко-белые
+PLAY = "#f08c2a"        # оранжевая кнопка «Играть»
+PLAY_PRESSED = "#d9771a"
 
 # «Почтовый ящик»: фоновая работа кладёт сюда сообщения, окно их забирает.
 # Так нужно, потому что менять окно tkinter можно только из главного потока.
@@ -219,7 +226,7 @@ def install_and_run(nickname, password, ram_gb):
             "uuid": offline_uuid(nickname),
             "token": "0",
             "jvmArguments": ["-Xmx" + ram_gb + "G"],
-            "launcherName": "Flauncher",
+            "launcherName": "Aetherium",
             "launcherVersion": LAUNCHER_VERSION,
         }
         command = mll.command.get_minecraft_command(version_id, GAME_DIR, options)
@@ -308,14 +315,15 @@ def open_register():
         row = tk.Frame(dialog, bg=BG)
         row.pack(pady=3)
         tk.Label(row, text=title, width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
-        entry = tk.Entry(row, width=20, font=("Segoe UI", 11), show="•" if hidden else "")
+        entry = tk.Entry(row, width=20, font=("Segoe UI", 11), show="•" if hidden else "",
+                         bg=FIELD, relief="flat")
         entry.pack(side="left")
         entries[key] = entry
 
     button = tk.Button(dialog, text="Создать аккаунт", font=("Segoe UI", 11, "bold"),
-                       bg=ACCENT, fg="white", relief="flat", command=on_register)
+                       bg=ACCENT, fg=WHITE, activebackground=LIGHT_BLUE, activeforeground=WHITE, relief="flat", command=on_register)
     button.pack(pady=10)
-    info = tk.Label(dialog, text="", font=("Segoe UI", 9), bg=BG, fg="#a0a0a0")
+    info = tk.Label(dialog, text="", font=("Segoe UI", 9), bg=BG, fg=MUTED)
     info.pack()
 
     def on_close():
@@ -372,7 +380,7 @@ def open_mods():
     tk.Label(dialog, text="Необязательные моды", font=("Segoe UI", 14, "bold"),
              bg=BG, fg=FG).pack(pady=(12, 2), padx=20)
     tk.Label(dialog, text="Сними галочку, чтобы выключить мод.\nНа сервер и других игроков это не влияет.",
-             font=("Segoe UI", 9), bg=BG, fg="#a0a0a0").pack(pady=(0, 8))
+             font=("Segoe UI", 9), bg=BG, fg=MUTED).pack(pady=(0, 8))
 
     # Для каждого мода — галочка. Галочка стоит, если мода нет в списке выключенных.
     checks = {}
@@ -392,7 +400,7 @@ def open_mods():
         status_label.config(text="Моды сохранены — применятся при нажатии «Играть»")
 
     tk.Button(dialog, text="Сохранить", font=("Segoe UI", 11, "bold"), width=12,
-              bg=ACCENT, fg="white", relief="flat", command=on_save).pack(pady=12)
+              bg=ACCENT, fg=WHITE, activebackground=LIGHT_BLUE, activeforeground=WHITE, relief="flat", command=on_save).pack(pady=12)
 
 
 # ---------- Основное окно ----------
@@ -446,7 +454,7 @@ def show_server_status(result):
         server_label.config(text="● Radmin VPN выключен", fg="#f0a030")   # оранжевый
         players_label.config(text="Включи Radmin VPN")
     else:
-        server_label.config(text="● Сервер выключен", fg="#a0a0a0")   # серый
+        server_label.config(text="● Сервер выключен", fg=MUTED)   # серый
         players_label.config(text="")
 
 
@@ -507,20 +515,20 @@ def check_messages():
 
 
 window = tk.Tk()
-window.title("Flauncher " + LAUNCHER_VERSION)
+window.title("Aetherium " + LAUNCHER_VERSION)
 window.geometry("420x470")
 window.resizable(False, False)
 window.configure(bg=BG)
 
 settings = load_settings()
 
-tk.Label(window, text="Flauncher", font=("Segoe UI", 22, "bold"), bg=BG, fg=FG).pack(pady=(18, 10))
+tk.Label(window, text="Aetherium", font=("Segoe UI", 22, "bold"), bg=BG, fg=WHITE).pack(pady=(18, 10))
 
 # Строка «Ник»
 row = tk.Frame(window, bg=BG)
 row.pack(pady=5)
 tk.Label(row, text="Ник:", width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
-nick_entry = tk.Entry(row, width=22, font=("Segoe UI", 11))
+nick_entry = tk.Entry(row, width=22, font=("Segoe UI", 11), bg=FIELD, relief="flat")
 nick_entry.insert(0, settings.get("nickname", ""))
 nick_entry.pack(side="left")
 
@@ -528,7 +536,7 @@ nick_entry.pack(side="left")
 row = tk.Frame(window, bg=BG)
 row.pack(pady=5)
 tk.Label(row, text="Пароль:", width=8, anchor="w", font=("Segoe UI", 11), bg=BG, fg=FG).pack(side="left")
-pass_entry = tk.Entry(row, width=22, font=("Segoe UI", 11), show="•")
+pass_entry = tk.Entry(row, width=22, font=("Segoe UI", 11), show="•", bg=FIELD, relief="flat")
 pass_entry.insert(0, settings["password"])
 pass_entry.pack(side="left")
 
@@ -561,8 +569,8 @@ def on_ram_change(value):
 
 ram_scale = tk.Scale(row, from_=MIN_RAM, to=max_ram, resolution=1, orient="horizontal",
                      length=170, showvalue=False, command=on_ram_change,
-                     bg=BG, fg=FG, troughcolor="#3a3b47", highlightthickness=0,
-                     activebackground=ACCENT, sliderrelief="flat")
+                     bg=ACCENT, fg=FG, troughcolor=TROUGH, highlightthickness=0,   # bg — цвет «ручки» ползунка
+                     activebackground=LIGHT_BLUE, sliderrelief="flat")
 # Сохранённое значение не может быть больше, чем есть памяти
 ram_scale.set(min(settings["ram"], max_ram))
 ram_scale.pack(side="left")
@@ -573,20 +581,20 @@ ram_hint_label.pack()
 on_ram_change(ram_scale.get())
 
 # Статус сервера: строка «● Сервер онлайн · ...» и ники игроков под ней
-server_label = tk.Label(window, text="● Проверяю сервер...", font=("Segoe UI", 10), bg=BG, fg="#a0a0a0")
+server_label = tk.Label(window, text="● Проверяю сервер...", font=("Segoe UI", 10), bg=BG, fg=MUTED)
 server_label.pack(pady=(6, 0))
-players_label = tk.Label(window, text="", font=("Segoe UI", 9), bg=BG, fg="#a0a0a0", wraplength=380)
+players_label = tk.Label(window, text="", font=("Segoe UI", 9), bg=BG, fg=MUTED, wraplength=380)
 players_label.pack()
 
 # Кнопка «Играть»
-play_button = tk.Button(window, text="Играть в terrasouth Arkaim", font=("Segoe UI", 14, "bold"), padx=16,
-                        bg=ACCENT, fg="white", activebackground="#358a41", relief="flat",
+play_button = tk.Button(window, text="Играть TerraSouth Arkaim", font=("Segoe UI", 14, "bold"), padx=16,
+                        bg=PLAY, fg=WHITE, activebackground=PLAY_PRESSED, activeforeground=WHITE, relief="flat",
                         command=on_play)
 play_button.pack(pady=(8, 4))
 
 # Кнопка «Регистрация» — неброская, под «Играть»
 tk.Button(window, text="Нет аккаунта? Регистрация", font=("Segoe UI", 9, "underline"),
-          bg=BG, fg="#8ab4f8", activebackground=BG, activeforeground="#aecbfa",
+          bg=BG, fg=LIGHT_BLUE, activebackground=BG, activeforeground=WHITE,
           relief="flat", bd=0, cursor="hand2", command=open_register).pack(pady=(0, 10))
 
 
@@ -598,7 +606,8 @@ def open_game_folder():
     os.startfile(GAME_DIR)
 
 
-settings_menu = tk.Menu(window, tearoff=0, font=("Segoe UI", 10))   # tearoff=0 — без лишней пунктирной строки
+settings_menu = tk.Menu(window, tearoff=0, font=("Segoe UI", 10), bg=TROUGH, fg=FG,
+                        activebackground=ACCENT, activeforeground=WHITE)   # tearoff=0 — без лишней пунктирной строки
 settings_menu.add_command(label="Моды", command=open_mods)
 settings_menu.add_command(label="Проверить моды", command=check_mods)
 settings_menu.add_command(label="Расположение папки", command=open_game_folder)
@@ -612,21 +621,25 @@ def show_settings_menu():
 
 
 settings_button = tk.Button(window, text="⚙", font=("Segoe UI Symbol", 14),
-                            bg=BG, fg=FG, activebackground="#3a3b47", activeforeground=FG,
+                            bg=BG, fg=FG, activebackground=TROUGH, activeforeground=FG,
                             relief="flat", bd=0, cursor="hand2", command=show_settings_menu)
 # place — поставить в точное место: в правый верхний угол с отступом 8 точек
 settings_button.place(relx=1.0, x=-8, y=8, anchor="ne")
 
 # Полоска загрузки и текст под ней
+style = ttk.Style()
+style.theme_use("clam")   # тема, у которой можно менять цвета полоски
+style.configure("Horizontal.TProgressbar", background=LIGHT_BLUE, troughcolor=TROUGH,
+                bordercolor=BG, lightcolor=LIGHT_BLUE, darkcolor=LIGHT_BLUE)
 progress_bar = ttk.Progressbar(window, length=360, mode="determinate")
 progress_bar.pack()
-status_label = tk.Label(window, text="Готов к запуску", font=("Segoe UI", 9), bg=BG, fg="#a0a0a0")
+status_label = tk.Label(window, text="Готов к запуску", font=("Segoe UI", 9), bg=BG, fg=MUTED)
 status_label.pack(pady=5)
 
 # Пока проверяем обновления лаунчера — кнопка выключена
 play_button.config(state="disabled")
 threading.Thread(target=check_launcher_update, daemon=True).start()
-# Отдельно, чтобы не задерживать проверку обновлений — убираем Flauncher.exe.old
+# Отдельно, чтобы не задерживать проверку обновлений — убираем старый .exe (с окончанием .old)
 threading.Thread(target=updater.cleanup_old, daemon=True).start()
 # Следим за сервером (раз в 30 секунд)
 threading.Thread(target=watch_server, daemon=True).start()

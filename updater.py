@@ -8,7 +8,9 @@ import requests
 import accounts   # запрос к GitHub с ключом (больше лимит запросов)
 
 REPO = "MAKC180/flauncher"   # репозиторий лаунчера, в Releases лежат готовые .exe
-EXE_NAME = "Flauncher.exe"   # как называется файл лаунчера в релизе
+# Как называется файл лаунчера в релизе. Раньше лаунчер звался Flauncher —
+# в релизе лежат оба файла (одинаковые), чтобы старые версии тоже нашли обновление.
+EXE_NAMES = ["Aetherium.exe", "Flauncher.exe"]
 
 
 def is_exe():
@@ -56,9 +58,9 @@ def check_for_update(current_version):
     if version_tuple(latest_version) <= version_tuple(current_version):
         return None   # у нас уже последняя версия
 
-    # В релизе ищем файл Flauncher.exe
+    # В релизе ищем файл Aetherium.exe (или старый Flauncher.exe)
     for asset in release["assets"]:
-        if asset["name"] == EXE_NAME:
+        if asset["name"] in EXE_NAMES:
             return latest_version, asset["browser_download_url"]
     return None
 
