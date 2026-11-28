@@ -129,10 +129,14 @@ def sync_pack(game_dir, modpack, callback, disabled_files=()):
     #    (папку config не чистим: моды сами создают там свои файлы)
     needed = set(file["path"] for file in files)
     mods_dir = os.path.join(game_dir, "mods")
+    removed = 0
     if os.path.isdir(mods_dir):
         for name in os.listdir(mods_dir):
             if "mods/" + name not in needed:
                 status("Удаляю лишний мод " + name)
                 os.remove(os.path.join(mods_dir, name))
+                removed += 1
 
     status("Сборка актуальна")
+    # Сообщаем, сколько файлов скачали и сколько модов удалили (для кнопки «Проверить моды»)
+    return len(to_download), removed

@@ -22,7 +22,7 @@ import accounts      # вход и регистрация (репозитори�
 import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.11"
+LAUNCHER_VERSION = "0.12"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -239,6 +239,37 @@ def install_and_run(nickname, password, ram_gb):
         messages.put(("error", str(error)))
 
     messages.put(("done",))       # работа закончена — можно снова нажимать «Играть»
+
+
+def check_mods_in_background():
+    # Кнопка «Проверить моды»: то же, что делает «ИГРАТЬ» с модами, но без запуска игры.
+    # Скачивает недостающие и изменённые моды, удаляет лишние.
+    callback = make_callback()
+    try:
+        callback["setStatus"]("Проверяю моды...")
+        modpack = pack_sync.get_modpack()
+        disabled_files = pack_sync.get_disabled_files(modpack, settings["disabled_mods"])
+        downloaded, removed = pack_sync.sync_pack(GAME_DIR, modpack, callback, disabled_files)
+        if downloaded == 0 and removed == 0:
+            callback["setStatus"]("Моды в порядке — ничего менять не нужно")
+        else:
+            callback["setStatus"]("Готово: скачано {}, удалено {}".format(downloaded, removed))
+    except PermissionError as error:
+        messages.put(("error", "Windows не даёт изменить файл:\n" + str(error.filename) +
+                      "\n\nСкорее всего, Minecraft ещё работает — закрой игру и попробуй снова."))
+    except Exception as error:
+        messages.put(("error", str(error)))
+    messages.put(("done",))   # снова можно нажимать «ИГРАТЬ»
+
+
+def check_mods():
+    # Нажали «Проверить моды» в меню-шестерёнке.
+    # Пока идёт игра или другая проверка, кнопка «ИГРАТЬ» выключена — тогда не начинаем.
+    if str(play_button["state"]) == "disabled":
+        messagebox.showinfo("Проверить моды", "Подожди: лаунчер сейчас занят")
+        return
+    play_button.config(state="disabled")
+    threading.Thread(target=check_mods_in_background, daemon=True).start()
 
 
 def register_in_background(nickname, password):
@@ -544,6 +575,7 @@ def open_game_folder():
 
 settings_menu = tk.Menu(window, tearoff=0, font=("Segoe UI", 10))   # tearoff=0 — без лишней пунктирной строки
 settings_menu.add_command(label="Моды", command=open_mods)
+settings_menu.add_command(label="Проверить моды", command=check_mods)
 settings_menu.add_command(label="Расположение папки", command=open_game_folder)
 
 
