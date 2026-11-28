@@ -22,7 +22,7 @@ import accounts      # вход и регистрация (репозитори�
 import server_status # включён ли сервер и кто на нём играет
 
 # ---------- Настройки ----------
-LAUNCHER_VERSION = "0.12"
+LAUNCHER_VERSION = "0.13"
 GAME_DIR = os.path.join(os.environ["APPDATA"], ".flauncher")
 SETTINGS_FILE = os.path.join(GAME_DIR, "flauncher_settings.json")
 MIN_RAM = 2           # меньше 2 ГБ сборка точно не запустится
@@ -188,6 +188,7 @@ def install_and_run(nickname, password, ram_gb):
         # Берём ник точно как в списке (HE_MAKC, а не he_makc) —
         # от больших/маленьких букв зависит ID игрока, а с ним и вещи в мире
         nickname = player["nick"]
+        messages.put(("nick", nickname))   # окно запишет этот ник в поле и в настройки
 
         status("Проверяю моды...")
         modpack = pack_sync.get_modpack()
@@ -234,7 +235,7 @@ def install_and_run(nickname, password, ram_gb):
         messages.put(("error", "Windows не даёт изменить файл игры:\n" + str(error.filename) +
                       "\n\nСкорее всего, Minecraft ещё работает в фоне"
                       " или файл блокирует антивирус.\n"
-                      "Перезагрузи компьютер и нажми «ИГРАТЬ» снова."))
+                      "Перезагрузи компьютер и нажми «Играть» снова."))
     except Exception as error:
         messages.put(("error", str(error)))
 
@@ -242,7 +243,7 @@ def install_and_run(nickname, password, ram_gb):
 
 
 def check_mods_in_background():
-    # Кнопка «Проверить моды»: то же, что делает «ИГРАТЬ» с модами, но без запуска игры.
+    # Кнопка «Проверить моды»: то же, что делает «Играть» с модами, но без запуска игры.
     # Скачивает недостающие и изменённые моды, удаляет лишние.
     callback = make_callback()
     try:
@@ -259,12 +260,12 @@ def check_mods_in_background():
                       "\n\nСкорее всего, Minecraft ещё работает — закрой игру и попробуй снова."))
     except Exception as error:
         messages.put(("error", str(error)))
-    messages.put(("done",))   # снова можно нажимать «ИГРАТЬ»
+    messages.put(("done",))   # снова можно нажимать «Играть»
 
 
 def check_mods():
     # Нажали «Проверить моды» в меню-шестерёнке.
-    # Пока идёт игра или другая проверка, кнопка «ИГРАТЬ» выключена — тогда не начинаем.
+    # Пока идёт игра или другая проверка, кнопка «Играть» выключена — тогда не начинаем.
     if str(play_button["state"]) == "disabled":
         messagebox.showinfo("Проверить моды", "Подожди: лаунчер сейчас занят")
         return
@@ -388,7 +389,7 @@ def open_mods():
         settings["disabled_mods"] = [name for name, var in checks.items() if not var.get()]
         write_settings()
         dialog.destroy()
-        status_label.config(text="Моды сохранены — применятся при нажатии «ИГРАТЬ»")
+        status_label.config(text="Моды сохранены — применятся при нажатии «Играть»")
 
     tk.Button(dialog, text="Сохранить", font=("Segoe UI", 11, "bold"), width=12,
               bg=ACCENT, fg="white", relief="flat", command=on_save).pack(pady=12)
@@ -415,6 +416,23 @@ def on_play():
     ram_gb = str(ram)                      # 6 -> "6" (для строки -Xmx6G)
     # daemon=True — фоновая работа закончится вместе с окном
     threading.Thread(target=install_and_run, args=(nickname, password, ram_gb), daemon=True).start()
+
+
+def save_current_fields():
+    # Сохраняем то, что сейчас написано в окне (ник, пароль, память).
+    # Пустой или неправильный ник не сохраняем — пусть останется прежний.
+    nickname = nick_entry.get().strip()
+    if re.fullmatch(NICK_RULE, nickname):
+        save_settings(nickname, int(ram_scale.get()), pass_entry.get(), remember_var.get())
+
+
+def on_window_close():
+    # Нажали крестик лаунчера: сначала запоминаем последний ник, потом закрываем
+    try:
+        save_current_fields()
+    except OSError:
+        pass   # не получилось записать файл — всё равно закрываем
+    window.destroy()
 
 
 def show_server_status(result):
@@ -470,9 +488,16 @@ def check_messages():
             nick_entry.insert(0, nickname)
             pass_entry.delete(0, "end")
             pass_entry.insert(0, password)
-            messagebox.showinfo("Регистрация", "Аккаунт " + nickname + " создан!\nТеперь нажми «ИГРАТЬ».")
+            save_current_fields()   # сразу запоминаем новый ник
+            messagebox.showinfo("Регистрация", "Аккаунт " + nickname + " создан!\nТеперь нажми «Играть».")
         elif kind == "server":
             show_server_status(message[1])
+        elif kind == "nick":
+            # Вход удался — запоминаем ник точно таким, как он записан в списке аккаунтов
+            nick_entry.delete(0, "end")
+            nick_entry.insert(0, message[1])
+            settings["nickname"] = message[1]
+            write_settings()
         elif kind == "register_error":
             if register_ui:
                 register_ui["button"].config(state="normal")
@@ -554,7 +579,7 @@ players_label = tk.Label(window, text="", font=("Segoe UI", 9), bg=BG, fg="#a0a0
 players_label.pack()
 
 # Кнопка «Играть»
-play_button = tk.Button(window, text="ИГРАТЬ", font=("Segoe UI", 14, "bold"), width=14,
+play_button = tk.Button(window, text="Играть в terrasouth Arkaim", font=("Segoe UI", 14, "bold"), padx=16,
                         bg=ACCENT, fg="white", activebackground="#358a41", relief="flat",
                         command=on_play)
 play_button.pack(pady=(8, 4))
@@ -605,6 +630,8 @@ threading.Thread(target=check_launcher_update, daemon=True).start()
 threading.Thread(target=updater.cleanup_old, daemon=True).start()
 # Следим за сервером (раз в 30 секунд)
 threading.Thread(target=watch_server, daemon=True).start()
+
+window.protocol("WM_DELETE_WINDOW", on_window_close)   # что делать при нажатии крестика
 
 check_messages()     # начинаем проверять «почтовый ящик»
 window.mainloop()    # показываем окно и ждём действий игрока
